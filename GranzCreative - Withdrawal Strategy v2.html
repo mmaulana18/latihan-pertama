@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Withdrawal Strategy Calculator</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels"></script>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; background-color: #f9f9f9; }
+    h2, h3 { margin-top: 30px; }
+    input, select { padding: 5px; margin: 5px; width: 120px; }
+    button { padding: 6px 12px; margin-top: 10px; }
+    table { border-collapse: collapse; width: 100%; margin-top: 20px; }
+    th, td { border: 1px solid #ccc; padding: 10px; text-align: center; }
+    th { background-color: #f2f2f2; }
+    tbody tr:nth-child(odd) { background-color: #ffffff; }
+    tbody tr:nth-child(even) { background-color: #f0f4f8; }
+    .green { background-color: #d4f9d4 !important; }
+    .red { background-color: #f9d4d4 !important; }
+    .yellow { background-color: #fffacc !important; }
+    .summary-table td { text-align: right; }
+    #earningChart {
+      display: block;
+      max-width: 500px;
+      max-height: 500px;
+      margin: 80px auto;
+    }
+  </style>
+</head>
+<body>
+
+  <h2>Withdrawal Strategy Calculator</h2>
+  <div>
+    <label>Account Name:</label>
+    <input type="text" id="nameInput">
+    <label>Net Earnings (USD):</label>
+    <input type="number" id="earningInput">
+    <button onclick="addAccount()">+ Add Account</button>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>No</th>
+        <th>Account Name</th>
+        <th>Transfer Method</th>
+        <th>Net Earnings</th>
+        <th>Transfer Fee</th>
+        <th>Receiving Fee</th>
+        <th>Conversion Fee</th>
+        <th>Gas Fee</th>
+        <th>Total Charges</th>
+        <th>Action</th>
+      </tr>
+    </thead>
+    <tbody id="accountTable"></tbody>
+  </table>
+
+  <div>
+    <h3>Overall Fee Summary</h3>
+    <table style="width: 100%;">
+      <thead>
+        <tr>
+          <th>Total Accounts</th>
+          <th>Total Charges (USD)</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td id="totalAccounts">0</td>
+          <td id="totalFee" class="yellow">$0.00</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div>
+    <h3>Simulation: Consolidated Transfer from PARALLAX to GREY</h3>
+    <div id="simulationTableParallaxOnly"></div>
+  </div>
+
+  <canvas id="earningChart"></canvas>
+
+  <script>
+    let accounts = [];
+    let previousTotalFee = 0;
+    let earningChart = null;
+
+    const baseFeeData = {
+      "GREY": { kirim: 0.00, penerimaan: 0.008, convert: 0.50, gas: 0.2747 },
+      "PARALLAX": { kirim: 0.00, penerimaan: 0.00, convert: 0.90, gas: 0.0000 },
+      "PARALLAX - GREY": { kirim: 0.004, penerimaan: 0.008, convert: 0.50, gas: 0.2747 }
+    };
+
+    function addAccount() {
+      const name = document.getElementById('nameInput').value || `Account ${accounts.length + 1}`;
+      const earning = parseFloat(document.getElementById('earningInput').value);
+      if (!earning || earning <= 0) return;
+
+      accounts.push({ name: name, earning: earning, method: 'GREY' });
+      renderTable();
+      document.getElementById('nameInput').value = '';
+      document.getElementById('earningInput').value = '';
+    }
+
+    function updateMethod(i, method) {
+      accounts[i].method = method;
+      renderTable();
+    }
+
+    function deleteAccount(index) {
+      accounts.splice(index, 1);
+      renderTable();
+    }
+
+    function calculateSimulationParallaxOnly() {
+      const parallaxAccounts = accounts.filter(acc => acc.method === "PARALLAX");
+      if (parallaxAccounts.length === 0) {
+        document.getElementById('simulationTableParallaxOnly').innerText = "No accounts using PARALLAX.";
+        return;
+      }
+
+      const totalEarning = parallaxAccounts.reduce((sum, acc) => sum + acc.earning, 0);
+      const feeKirim = totalEarning * 0.004 + 1;
+      const feePenerimaan = Math.min(Math.max(totalEarning * 0.008, 2), 10);
+      const feeConvert = parallaxAccounts.reduce((sum, acc) => sum + (acc.earning * 0.005), 0);
+      const gasFee = 0.2747;
+      const totalFeeCombined = feeKirim + feePenerimaan + feeConvert + gasFee;
+
+      const totalFeeSeparated = parallaxAccounts.reduce((sum, acc) => {
+        const convert = acc.earning * 0.009;
+        return sum + convert;
+      }, 0);
+
+      const indicator = totalFeeCombined < totalFeeSeparated
+        ? '🟢 More cost-efficient than individual transfers.'
+        : (totalFeeCombined > totalFeeSeparated
+            ? '🔴 More expensive than individual transfers.'
+            : '🟡 Cost is the same as individual transfers.');
+
+      document.getElementById('simulationTableParallaxOnly').innerHTML = `
+        <table class="summary-table">
+          <tr><td>Total Net Earnings:</td><td colspan="2">$${totalEarning.toFixed(2)}</td></tr>
+          <tr><th>Cost Component</th><th>Consolidated</th><th>Individual</th></tr>
+          <tr><td>Transfer Fee</td><td>$${feeKirim.toFixed(2)}</td><td>$0.00</td></tr>
+          <tr><td>Receiving Fee</td><td>$${feePenerimaan.toFixed(2)}</td><td>$0.00</td></tr>
+          <tr><td>Conversion Fee</td><td>$${feeConvert.toFixed(2)}</td><td>$${totalFeeSeparated.toFixed(2)}</td></tr>
+          <tr><td>Gas Fee</td><td>$${gasFee.toFixed(4)}</td><td>$0.0000</td></tr>
+          <tr><td><strong>Total Charges</strong></td><td><strong>$${totalFeeCombined.toFixed(2)}</strong></td><td><strong>$${totalFeeSeparated.toFixed(2)}</strong></td></tr>
+        </table>
+        <p><strong>${indicator}</strong></p>
+      `;
+    }
+
+    function renderTable() {
+      const table = document.getElementById('accountTable');
+      table.innerHTML = '';
+      let totalFee = 0;
+
+      accounts.forEach((acc, i) => {
+        const idx = i + 1;
+        const fee = { ...baseFeeData[acc.method] };
+        const feeKirim = acc.earning * fee.kirim;
+        const feePenerimaanRaw = acc.earning * fee.penerimaan;
+        const feePenerimaan = fee.penerimaan ? Math.min(Math.max(feePenerimaanRaw, 2), 10) : 0;
+        const feeConvertTotal = acc.earning * (fee.convert / 100);
+        const feeGas = fee.gas;
+        const total = feeKirim + feePenerimaan + feeConvertTotal + feeGas;
+
+        totalFee += total;
+
+        const row = document.createElement('tr');
+        row.innerHTML = `
+          <td>${idx}</td>
+          <td>${acc.name}</td>
+          <td>
+            <select onchange="updateMethod(${i}, this.value)">
+              <option value="GREY" ${acc.method === 'GREY' ? 'selected' : ''}>GREY</option>
+              <option value="PARALLAX" ${acc.method === 'PARALLAX' ? 'selected' : ''}>PARALLAX</option>
+              <option value="PARALLAX - GREY" ${acc.method === 'PARALLAX - GREY' ? 'selected' : ''}>PARALLAX - GREY</option>
+            </select>
+          </td>
+          <td>$${acc.earning.toFixed(2)}</td>
+          <td>$${feeKirim.toFixed(2)}</td>
+          <td>$${feePenerimaan.toFixed(2)}</td>
+          <td>$${feeConvertTotal.toFixed(2)}</td>
+          <td>$${feeGas.toFixed(4)}</td>
+          <td>$${total.toFixed(2)}</td>
+          <td><button onclick="deleteAccount(${i})">Delete</button></td>
+        `;
+        table.appendChild(row);
+      });
+
+      const totalAccounts = document.getElementById('totalAccounts');
+      const feeCell = document.getElementById('totalFee');
+
+      totalAccounts.innerText = accounts.length;
+      feeCell.innerText = `$${totalFee.toFixed(2)}`;
+
+      feeCell.classList.remove("green", "red", "yellow");
+      if (totalFee > previousTotalFee) feeCell.classList.add("red");
+      else if (totalFee < previousTotalFee) feeCell.classList.add("green");
+      else feeCell.classList.add("yellow");
+
+      previousTotalFee = totalFee;
+      updateChart();
+      calculateSimulationParallaxOnly();
+    }
+
+    function updateChart() {
+      const ctx = document.getElementById('earningChart').getContext('2d');
+      if (earningChart && typeof earningChart.destroy === 'function') {
+        earningChart.destroy();
+      }
+
+      const labels = accounts.map(a => a.name);
+      const data = accounts.map(a => a.earning);
+
+      Chart.register(ChartDataLabels);
+      earningChart = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+          labels: labels,
+          datasets: [{
+            data: data,
+            backgroundColor: labels.map((_, i) => `hsl(${i * 40}, 70%, 60%)`)
+          }]
+        },
+        options: {
+          plugins: {
+            datalabels: {
+              color: '#000',
+              anchor: 'end',
+              align: 'end',
+              formatter: (value, ctx) => {
+                let sum = ctx.chart.data.datasets[0].data.reduce((a, b) => a + b, 0);
+                let percentage = (value * 100 / sum).toFixed(1) + "%";
+                return percentage;
+              },
+              font: { weight: 'bold' }
+            },
+            legend: {
+              position: 'bottom',
+              labels: { padding: 30 }
+            },
+            tooltip: {
+              callbacks: {
+                label: ctx => `${ctx.label}: $${ctx.parsed} (${((ctx.parsed / data.reduce((a,b)=>a+b,0)) * 100).toFixed(1)}%)`
+              }
+            }
+          }
+        }
+      });
+    }
+  </script>
+</body>
+</html>
